@@ -726,7 +726,6 @@ if len(proteinAlignments) and not args.deferRaxml:
         proc_start_time = time()
         result_code = subprocess.call(raxmlCommand, shell=False) #/, stdout=LOG, stderr=LOG)
         raxml_process_time.append(time() - proc_start_time)
-        subprocess.run(raxmlCommand)
         if os.path.exists("RAxML_rootedTree."+output_suffix):
             os.rename("RAxML_rootedTree."+output_suffix, phyloFileBase + "_tree_rooted.nwk")
             filesToMoveToDetailsFolder.append(phyloFileBase + "_tree_rooted.nwk")
