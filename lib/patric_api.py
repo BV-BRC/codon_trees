@@ -7,7 +7,6 @@ except: # fall back to python2
     import urllib as urllib_parse
 import copy
 import time
-#from Bio.Alphabet import IUPAC
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -163,7 +162,7 @@ def getSequenceOfFeatures(feature_ids, seq_type='dna'):
     start = 0
     retval = ""
     feature_ids = list(feature_ids) # so we can index over them
-    max_tries = 10
+    num_tries = 10
     output_ids = set() # to exclude duplicate IDs in output (can happen with 'undefined')
     while start < len(feature_ids):
         end = start + max_per_query
@@ -171,36 +170,36 @@ def getSequenceOfFeatures(feature_ids, seq_type='dna'):
         #query="in(patric_id,("+",".join(map(urllib.quote, feature_ids[start:end]))+"))"
         query="in(patric_id,("+",".join(feature_ids[start:end])+"))"
         query += "&limit(%d)"%len(feature_ids)
+        sys.stderr.write(f"getSequenceOfFeatures(), type={seq_type}\n")
         if Debug:
-            sys.stderr.write("getSequenceOfFeatures: {}\n".format(query))
+            sys.stderr.write("query =: {}\n".format(query))
         
         response=Session.get(Base_url+"genome_feature/", params=query, headers={'Accept': 'application/%s+fasta'%seq_type}, verify= not Debug)
-        if not response.ok:
-            max_tries -= 1
-            errorMessage= "Error code %d returned by %s in getSequenceOfFeatures\nnumber of tries left = %d\n"%(response.status_code, Base_url, len(query))
+        if response.ok:
+            seqId = None
+            for line in response.text.split("\n"):
+                if line.startswith(">"):
+                    seqId = line.split(" ", 1)[0] # space delimited
+                    parts = line.split("|")
+                    if len(parts) > 2:
+                        seqId = "|".join(parts[:2])
+                    if seqId in output_ids:
+                        LOG.write("duplicate ID in getSequenceOfFeatures: {}\n".format(seqId))
+                        seqId = None # invalidate a duplicated ID
+                    else:
+                        output_ids.add(seqId)
+                        line = seqId
+                if seqId:
+                    retval += line+"\n"
+            start += max_per_query
+        else: # response not ok
+            num_tries -= 1
+            errorMessage= "Error code %d returned by %s in getSequenceOfFeatures\nnumber of tries left = %d\n"%(response.status_code, Base_url, num_tries)
             LOG.write(errorMessage)
             LOG.flush()
-            if max_tries <= 0:
+            if num_tries <= 0:
                 raise Exception(errorMessage)
-            time.sleep(10)
-            continue
-        seqId = None
-        for line in response.text.split("\n"):
-            if line.startswith(">"):
-                seqId = line.split(" ", 1)[0] # space delimited
-                parts = line.split("|")
-                if len(parts) > 2:
-                    seqId = "|".join(parts[:2])
-                if seqId in output_ids:
-                    LOG.write("duplicate ID in getSequenceOfFeatures: {}\n".format(seqId))
-                    seqId = None # invalidate a duplicated ID
-                else:
-                    output_ids.add(seqId)
-                    line = seqId
-            if seqId:
-                retval += line+"\n"
-        start += max_per_query
-        max_tries = 10
+            time.sleep(100 - (num_tries*10)) # grow sleep time each time
     return retval
 
 def getProteinsFastaForGenomeId(genomeId):
@@ -379,7 +378,7 @@ def getHomologGenomeMatrix(genomes, homologs, ggpMat=None, scope='global'):
         ggpMat[pgfam][genome].add(gene)
     return ggpMat
 
-def write_homolog_gene_matrix(ggpMat, fileHandle, minProp=0):
+def write_homolog_gene_matrix(ggpMat, fileHandle, minGenomes=0):
     """ write out homologGeneMatrix to file handle 
     data is list of genes per homolog per genome
     rows are homologs
@@ -394,9 +393,9 @@ def write_homolog_gene_matrix(ggpMat, fileHandle, minProp=0):
     for homolog in ggpMat:
         genomeSet.update(set(ggpMat[homolog].keys()))
     genomes = sorted(genomeSet)
-    min_genomes_required =  minProp
-    if minProp < 1:
-        min_genomes_required = minProp * len(genomes)
+    min_genomes_required =  minGenomes
+    if minGenomes < 1:
+        min_genomes_required = minGenomes * len(genomes)
     fileHandle.write("PGFam\t"+"\t".join(genomes)+"\n")
     for homolog in ggpMat:
         if len(ggpMat[homolog]) >= min_genomes_required:
@@ -408,7 +407,7 @@ def write_homolog_gene_matrix(ggpMat, fileHandle, minProp=0):
                 fileHandle.write("\t"+gene)
             fileHandle.write("\n")
 
-def write_homolog_count_matrix(ggpMat, fileHandle, minProp=0):
+def write_homolog_count_matrix(ggpMat, fileHandle, minGenomes=0):
     """ write out matrix of counts per homolog per genome to file handle 
     data is count of genes per homolog per genome (integers)
     rows are homologs
@@ -422,9 +421,9 @@ def write_homolog_count_matrix(ggpMat, fileHandle, minProp=0):
     for homolog in ggpMat:
         genomeSet.update(set(ggpMat[homolog].keys()))
     genomes = sorted(genomeSet)
-    min_genomes_required =  minProp
-    if minProp < 1:
-        min_genomes_required = minProp * len(genomes)
+    min_genomes_required =  minGenomes
+    if minGenomes < 1:
+        min_genomes_required = minGenomes * len(genomes)
     fileHandle.write("PGFam\t"+"\t".join(genomes)+"\n")
     for homolog in ggpMat:
         if len(ggpMat[homolog]) >= min_genomes_required:

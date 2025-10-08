@@ -23,8 +23,7 @@ def genomeIdFromFigId(figId):
     return None
 
 parser = argparse.ArgumentParser(description="Codon-oriented aligment and tree analysis of PATRIC protein families", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("--parametersJson", metavar="file.json", type=str, help="parameters in json format (command line overrides)")
-parser.add_argument("--outputBase", metavar="filebase", type=str, help="base name for output files, def=codontree")
+parser.add_argument("--outputBase", "--prefix", metavar="filebase", type=str, help="base name for output files, def=codontree")
 parser.add_argument("--outputDirectory", type=str, metavar="out_dir", help="for output, create if needed")
 parser.add_argument("--genomeIdsFile", metavar="file", type=str, nargs="*", help="file with PATRIC genome IDs, one per line (or first column of TSV)")
 parser.add_argument("--genomeGroup", metavar="name", type=str, nargs="*", help="name of user's genome group at PATRIC")
@@ -36,7 +35,7 @@ parser.add_argument("--homologScope", metavar="global/local", choices=['global',
 parser.add_argument("--maxGenes", metavar="#", type=int, default=50, help="number of genes in concatenated alignment")
 parser.add_argument("--excessGenesProp", metavar="prop", type=float, default=0.5, help="multiplier of maxGenes to add to filter out low-scoring alignments")
 parser.add_argument("--excessGenesFixed", metavar="#", type=int, default=20, help="fixed excess genes to add to filter out low-scoring alignments")
-parser.add_argument("--bootstrapReps", metavar="#", type=int, help="number of raxml 'fast boostrap' replicates")
+parser.add_argument("--bootstrapReps", metavar="#", type=int, default=0, help="number of raxml 'fast boostrap' replicates")
 parser.add_argument("--maxGenomesMissing", metavar="#", type=int, default=0, help="genomes allowed to lack a member of any homolog group")
 parser.add_argument("--maxAllowedDups", metavar="#", type=int, default=0, help="duplicated gene occurrences allowed within homolog group")
 
@@ -47,18 +46,18 @@ parser.add_argument("--rateModel", metavar="model", type=str, choices = ['CAT', 
 parser.add_argument("--proteinModel", metavar="model", type=str, default="AUTO", help="raxml protein substitution model")
 parser.add_argument("--protein_sample_prop", metavar="0.XX", type=float, default=0.5, help="proportion of positions to sample for discovery of optimal model")
 parser.add_argument("--analyzeCodons", action='store_true', help="analyze only codon nucleotides")
+parser.add_argument("--analyzePos3Codons", action='store_true', help="analyze codon-position 3 nucleotides in addition")
 parser.add_argument("--analyzeProteins", action='store_true', help="analyze only amino acids")
 parser.add_argument("--threads", "-t", metavar="T", type=int, default=2, help="threads for raxml")
 parser.add_argument("--deferRaxml", action='store_true', help="does not run raxml")
 parser.add_argument("--exitBeforeAlignment", action='store_true', help="Don't align, useful for getting PGFam matrix")
 parser.add_argument("--writePgfamAlignments", action='store_true', help="write fasta alignment per homolog used for tree")
 parser.add_argument("--writePgfamAlignmentsDNA", action='store_true', help="write fasta alignment per homolog used for tree")
-parser.add_argument("--writePgfamMatrix", type=float, help="write table of gene_id per homolog per genome (present in > proportion of genomes)")
-parser.add_argument("--writePgfamCountMatrix", type=float, help="write table of counts per homolog per genome (present in > proportion of genomes)")
+parser.add_argument("--writePgfamMatrix", type=float, help="write table of gene_id per homolog per genome present in > proportion of genomes or number of genomes (if > 1.0)")
+parser.add_argument("--writePgfamCountMatrix", type=float, help="write table of counts per homolog per genome present in > proportion of genomes or number of genomes if > 1.0)")
 parser.add_argument("--writePhyloxml", action='store_true', help="write tree in phyloxml format")
 parser.add_argument("--phyloxmlFields", type=str, metavar='data fields', help="comma-sparated genome fields for phyloxml")
 parser.add_argument("--pathToFigtreeJar", type=str, metavar="path", help="not needed if figtree executable on path")
-parser.add_argument("--universalRolesFile", type=str, metavar="path", help="path to file with universal roles to select conserved genes")
 parser.add_argument("--focusGenome", metavar="id", type=str, help="to be highlighted in color in Figtree")
 parser.add_argument("--debugMode", action='store_true', help="more output to log file")
 parser.add_argument("--authToken", metavar="STRING", type=str, help="patric authentication token")
@@ -73,31 +72,6 @@ starttime = time()
 genomeIds = set() # list of genome IDs for tree building (enforcing maxGenomesMissing and maxAllowedDupes)
 optionalGenomeIds = set()
 
-if args.parametersJson:
-    # read parameters in json file, avoiding overwriting any specified on command line
-    params = json.load(open(args.parametersJson))
-    if "output_path" in params and not args.outputDirectory:
-        args.outputDirectory = os.path.abspath(params["output_path"])
-    if "output_file" in params and not args.outputBase:
-        args.outputBase = params["output_file"]
-    if "genome_group" in params: #not necessary if UI flattens these out to ids
-        if not args.genomeGroup:
-            args.genomeGroup = []
-        args.genomeGroup.extend(params["genome_group"])
-    if "genome_ids" in params: 
-        genomeIds |= set(params["genome_ids"])
-    if "optional_genome_ids" in params:
-        optionalGenomeIds |= set(params["optional_genome_ids"])
-    if "number_of_genes" in params:
-        args.maxGenes = params["number_of_genes"]
-    if "bootstraps" in params:
-        if params["bootstraps"]:
-            args.bootstrapReps = 100
-    if "max_genomes_missing" in params:
-        args.maxGenomesMissing = params["max_genomes_missing"]
-    if "max_allowed_dups" in params:
-        args.maxAllowedDups = params["max_allowed_dups"]
-    
 if not args.outputDirectory:
     args.outputDirectory="./"
 if not args.outputDirectory.endswith("/"):
@@ -493,7 +467,7 @@ proteinPositions=0
 codonPositions = 0
 protein_substitution_model = args.proteinModel
 rate_model = args.rateModel
-if numTaxa > 50:
+if numTaxa > 500:
     rate_model = 'CAT'  # faster with this many taxa, per RAxML manual
 
 raxmlCommand = []
@@ -568,12 +542,18 @@ if len(proteinAlignments):
     proteinAlignments = selectedAlignments
 
     if args.writePgfamAlignments:
+        if os.path.exists("protein_alignments"):
+            shutil.rmtree("protein_alignments")
+        os.mkdir("protein_alignments")
         for homolog in proteinAlignments:
-            SeqIO.write(proteinAlignments[homolog], homolog+".afa", "fasta")
+            SeqIO.write(proteinAlignments[homolog], "protein_alignments/"+homolog+".afa", "fasta")
     if args.writePgfamAlignmentsDNA:
+        if os.path.exists("dna_alignments"):
+            shutil.rmtree("dna_alignments")
+        os.mkdir("dna_alignments")
         for homolog in proteinAlignments:
             if homolog in codonAlignments:
-                SeqIO.write(codonAlignments[homolog], homolog+".afn", "fasta")
+                SeqIO.write(codonAlignments[homolog], "dna_alignments/" + homolog+".afn", "fasta")
 
 # it is possible all codon alignments failed, remove from intent to analyze
     if len(codonAlignments) == 0:
@@ -595,7 +575,7 @@ if len(proteinAlignments):
         for seq_id in sorted(sampled_prots):
             F.write(">"+seq_id+"\n"+sampled_prots[seq_id]+"\n")
         F.close()
-        raxmlCommand = [args.raxmlExecutable, "-s", proteinAlignmentFile, "-n", proteinFileBase, "-m", "PROTCATAUTO", "-p", "12345", "-T", str(args.threads), '-e', '10']
+        raxmlCommand = [args.raxmlExecutable, "-s", proteinAlignmentFile, "-n", proteinFileBase, "-m", "PROTGAMMAAUTO", "-p", "12345", "-T", str(args.threads), '-e', '10']
         LOG.write("command = "+" ".join(raxmlCommand)+"\n")
         raxml_command_lines.append(" ".join(raxmlCommand))
         raxml_analysis_goal.append("Analyze proteins with model 'AUTO' to find best substitution model.")
@@ -614,10 +594,16 @@ if len(proteinAlignments):
             filesToMoveToDetailsFolder.append("RAxML_info."+proteinFileBase)
             F = open("RAxML_info."+proteinFileBase)
             bestModel = None
+            bestScore = 0
             for line in F:
-                m = re.match(r"\s+Partition: 0 best-scoring AA model:\s+(\S+)", line)
+                m = re.match(r"\s+Partition: 0 best-scoring AA model: (\S+) likelihood (\S+)", line)
                 if m:
-                    bestModel = m.group(1)
+                    score = float(m.group(2))
+                    if (bestScore == 0) or (score > bestScore):
+                        bestScore = score
+                        bestModel = m.group(1)
+                        if "empirical base frequencies" in line:
+                            bestModel += "F" #add 'F' to model name to indicate use empirical base [sic] frequencies
             if bestModel:
                 protein_substitution_model = bestModel
                 LOG.write("Analysis of proteins found best model: "+bestModel+"\n")
@@ -658,6 +644,16 @@ if len(proteinAlignments):
         phylocode.writeConcatenatedAlignmentsPhylip(proteinAlignments, alignmentFile)
         raxmlCommand = [args.raxmlExecutable, "-s", alignmentFile, "-n", phyloFileBase, "-m",  "PROT%s%s"%(rate_model, protein_substitution_model), "-p", "12345", "-T", str(args.threads)]
     #raxmlCommand.extend(["-e", "0.1"]) #limit on precision, faster than default 0.1
+
+    if args.analyzePos3Codons:
+        # write 3rd codon position columns to aligned fasta file
+        codonPos3_alignmentFile = phyloFileBase+"_codonPos3.afa"
+        filesToMoveToDetailsFolder.append(codonPos3_alignmentFile)
+        F = open(codonPos3_alignmentFile, "w")
+        seqDict = phylocode.concatenate_codons_proteins(codonAlignments, [], codonPos=3)
+        for seqId in seqDict:
+            F.write(">"+seqId+"\n"+seqDict[seqId]+"\n")
+        F.close()
 
     if args.bootstrapReps > 0:
         raxmlCommand.extend(["-f", "a", "-x", "12345", "-N", str(args.bootstrapReps)]) 
@@ -750,6 +746,22 @@ if len(proteinAlignments) and not args.deferRaxml:
         LOG.write("codonTree newick relabeled with genome names written to "+renamedNewickFile+"\n")
         LOG.flush()
 
+        if args.analyzePos3Codons and treeWithGenomeIdsFile:
+            # fit tree to distances from 3rd codon position columns 
+            codonPos3_alignmentFile
+            fileBase = phyloFileBase+"_codonPos3_branchlengths"
+            # -f e optimize model parameters+branch lengths for given input tree
+            raxmlCommand = [args.raxmlExecutable, "-s", codonPos3_alignmentFile, "-n", fileBase, "-m",  "GTRCAT", "-f", "e", "-t", "RAxML_bestTree."+phyloFileBase]
+            raxml_command_lines.append(" ".join(raxmlCommand))
+            raxml_analysis_goal.append("Optimize best tree to branch lengths from 3rd codon positions.")
+            proc_start_time = time()
+            result_code = subprocess.call(raxmlCommand, shell=False)
+            raxml_process_time.append(time() - proc_start_time)
+            LOG.write("Optimize best tree to branch lengths from 3rd codon positions.\n")
+            if os.path.exists("RAxML_result."+fileBase):
+                os.rename("RAxML_result."+fileBase, phyloFileBase + "_codonPos3_branchlengths.nwk")
+                filesToMoveToDetailsFolder.append(phyloFileBase + "_codonPos3_branchlengths.nwk")
+                filesToMoveToDetailsFolder.append("RAxML_info."+fileBase)
 
         if args.writePhyloxml and treeWithGenomeIdsFile:
             LOG.write("writePhyloxml\n")
@@ -984,12 +996,14 @@ for fn in filesToMoveToDetailsFolder:
         LOG.write("tried to move {} to detailsDirectory, but not found.\n".format(fn))
 LOG.write("files moved: %d\n"%numMoved)
 filesToDelete.extend(glob.glob("RAxML*"))
-if args.debugMode:
+filesToDelete.extend(glob.glob("*.reduced"))
+if not args.debugMode:
     numDeleted = 0
     for fn in filesToDelete:
-        os.remove(fn)
-        numDeleted += 1
-        LOG.write("\t"+fn+"\n")
+        if os.path.exists(fn):
+            os.remove(fn)
+            numDeleted += 1
+            LOG.write("\t"+fn+"\n")
     LOG.write("files deleted: %d\n"%numDeleted)
 logfileName = os.path.basename(logfileName)
 # finally, move the log file into the detailsDirectory
