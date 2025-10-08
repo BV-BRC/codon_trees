@@ -6,21 +6,14 @@ import os.path
 import patric_api
 from math import log
 from random import sample
-#from Bio import BiopythonWarning
-#from Bio.Alphabet import IUPAC
 from Bio import AlignIO
 from Bio import SeqIO
-#from Bio import Alphabet
 from Bio.Seq import Seq
-#from Bio.SeqRecord import SeqRecord
-#from Bio.Align import MultipleSeqAlignment
-#from Bio.Data import CodonTable
 from Bio import BiopythonExperimentalWarning
 import warnings
 with warnings.catch_warnings():
     warnings.simplefilter('ignore', BiopythonExperimentalWarning)
     from Bio import codonalign
-#from collections import defaultdict
 try:
     from StringIO import StringIO ## for Python 2
 except ImportError:
