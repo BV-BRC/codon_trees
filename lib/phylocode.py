@@ -524,6 +524,7 @@ def gapCdsToProteins(proteinAlignment, extraDnaSeqs=None):
         dnaAlignFasta.write(">"+seqId+"\n")
         dnaSeqPos = 0
         codon_to_aa_mismatch = 0
+        protPos = 0
         for protPos in range(0, len(protSeq)):
             if protSeq[protPos] == '-':
                 codon = '---'

@@ -26,7 +26,7 @@ PatricUser = None
 
 def setDebug(state):
     Debug = state
-    LOG.write("setting Debug to {}\n".format(Debug))
+    LOG.write("in patric_api: setting Debug to {}\n".format(Debug))
     Session.verify= not Debug # turn off authentiction if in debug mode
 
 def authenticateByFile(tokenFile=None):
@@ -346,36 +346,43 @@ def get_homolog_count_matrix(genomeIdSet, ggpMat = None, scope='global'):
         ggpMat[homolog][genome] += 1
     return ggpMat
 
-def getHomologGenomeMatrix(genomes, homologs, ggpMat=None, scope='global'):
+def get_homologs_from_list(genomes, homologs, ggpMat=None, scope='global'):
     """ Get homolog (eg PGFam) matrix specifying both homologs and genomes. """
-    if Debug:
-        LOG.write("patric_api.getHomologGenomeMatrix() called with {} genomes and {} homologs\n".format(len(genomes), len(homologs)))
+    if 1 or Debug:
+        LOG.write("patric_api.get_homologs_from_list() called with {} genomes and {} homologs, Debug={}\n".format(len(genomes), len(homologs), Debug))
     familyType = 'pgfam_id'
     if scope == 'local':
         familyType = 'plfam_id'
     if not ggpMat: # if an existaing matrix was passed, extend it
         ggpMat = {} # genome-gene-pgfam matrix (really just a dictionary)
-    # consider breaking query up by slices of genomes or homologs or both, if needed
-    query = "in(genome_id,({}))".format(",".join(genomes)) #, "in(product,(%s))"%",".join(roles))
-    query += "&in({},({}))".format(familyType, ",".join(homologs))
-    query += "&select(genome_id,patric_id,{})".format(familyType)
-    query += "&limit(25000)"
-    response = Session.get(Base_url+"genome_feature/", params=query) #, 
-    if Debug:
-        LOG.write("query= %s\n"%response.url)
-    for line in response.text.split("\n")[1:]: # skip first line header
-        line = line.replace('"','')
-        if Debug:
-            LOG.write("row= "+line+"\n")
-        row = line.split("\t")
-        if len(row) != 3:
-            continue
-        genome, gene, pgfam = row
-        if pgfam not in ggpMat:
-            ggpMat[pgfam] = {}
-        if genome not in ggpMat[pgfam]:
-            ggpMat[pgfam][genome] = set()
-        ggpMat[pgfam][genome].add(gene)
+    # breaking query up by slices of homologs, needed
+    homolog_index = 0
+    homolog_chunk_size = 25
+    while homolog_index < len(homologs):
+        homolog_chunk = homologs[homolog_index:homolog_index+homolog_chunk_size]
+        homolog_index += homolog_chunk_size
+        query = "in(genome_id,({}))".format(",".join(genomes)) #, "in(product,(%s))"%",".join(roles))
+        query += "&in({},({}))".format(familyType, ",".join(homolog_chunk))
+        query += "&select(genome_id,patric_id,{})".format(familyType)
+        query += "&limit(25000)"
+        response = Session.get(Base_url+"genome_feature/", params=query) #, 
+        if 1 or Debug:
+            LOG.write("query= %s\n"%response.url)
+        for line in response.text.split("\n")[1:]: # skip first line header
+            line = line.replace('"','')
+            if Debug:
+                LOG.write("row= "+line+"\n")
+            row = line.split("\t")
+            if len(row) != 3:
+                continue
+            genome, gene, pgfam = row
+            if pgfam not in ggpMat:
+                ggpMat[pgfam] = {}
+            if genome not in ggpMat[pgfam]:
+                ggpMat[pgfam][genome] = set()
+            ggpMat[pgfam][genome].add(gene)
+    if 1 or Debug:
+        LOG.write(f"homologs retrieved for num pgfams = {len(ggpMat)}\n")
     return ggpMat
 
 def write_homolog_gene_matrix(ggpMat, fileHandle, minGenomes=0):
