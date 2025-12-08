@@ -7,6 +7,7 @@ import glob
 import argparse
 import subprocess
 import json
+import shutil
 try:
     from StringIO import StringIO ## for Python 2
 except ImportError:
@@ -223,11 +224,12 @@ if len(genomesWithoutData):
         homologList = []
         with open(args.homologIdsFile) as F:
             for line in F:
-                m = re.match("\s*(\S+).*", line)
+                m = re.match("\s*(P[GL]F_\S+).*", line)
                 if m:
                     homologList.append(m.group(1))
         LOG.write("use homologs listed in {}\n".format(args.homologIdsFile))
-        homologMatrix = patric_api.getHomologGenomeMatrix(genomesWithoutData, homologList, homologMatrix)
+        args.maxGenes = len(homologList);
+        homologMatrix = patric_api.get_homologs_from_list(genomesWithoutData, homologList, homologMatrix)
     else:
         LOG.write("getPgfamGenomeMatrix()\n")
         homologMatrix = patric_api.get_homolog_gene_matrix(genomesWithoutData, homologMatrix, scope=args.homologScope)
@@ -301,50 +303,51 @@ for genomeId in genomeIds:
 alignedTaxa=set()
 protein_alignment_time = time()
 for homologId in singleCopyHomologs:
-        LOG.write("aligning {}\n".format(homologId))
-        geneIdSet = set()
-        for genome in homologMatrix[homologId]:
-            for proteinId in homologMatrix[homologId][genome]:
-                if not "undefined" in proteinId:
-                    geneIdSet.add(proteinId)
-            #geneIdSet.update(set(homologMatrix[homologId][genome]))
+    LOG.write("aligning {}\n".format(homologId))
+    geneIdSet = set()
+    for genome in homologMatrix[homologId]:
+        for proteinId in homologMatrix[homologId][genome]:
+            if not "undefined" in proteinId:
+                geneIdSet.add(proteinId)
+        #geneIdSet.update(set(homologMatrix[homologId][genome]))
 
-        proteinFasta = patric_api.getSequenceOfFeatures(geneIdSet, 'protein')
-        # replace bad characters for good while it is still text (e.g., 'J' to 'X')
-        lines = proteinFasta.split("\n")
-        for i in range(len(lines)):
-            if not lines[i].startswith(">"):
-                lines[i] = lines[i].replace("J", "X") #shouldn't occur, but avoid crashing downstream analysis programs
-        proteinFasta = "\n".join(lines)
+    proteinFasta = patric_api.getSequenceOfFeatures(geneIdSet, 'protein')
+    # replace bad characters for good while it is still text (e.g., 'J' to 'X')
+    lines = proteinFasta.split("\n")
+    for i in range(len(lines)):
+        if not lines[i].startswith(">"):
+            lines[i] = lines[i].replace("J", "X") #shouldn't occur, but avoid crashing downstream analysis programs
+    proteinFasta = "\n".join(lines)
 
-        seqRecords = SeqIO.parse(StringIO(proteinFasta), "fasta") #, alphabet=) #IUPAC.extended_protein)
-        proteinSeqDict = SeqIO.to_dict(seqRecords)
+    seqRecords = SeqIO.parse(StringIO(proteinFasta), "fasta") #, alphabet=) #IUPAC.extended_protein)
+    proteinSeqDict = SeqIO.to_dict(seqRecords)
 
-        for genomeId in homologMatrix[homologId]:
-            for geneId in homologMatrix[homologId][genomeId]:
-                if genomeId == genomeObject_genomeId:
-                    proteinSeqDict[geneId] = genomeObjectProteins[geneId]
-                if geneId in proteinSeqDict:
-                    proteinSeqDict[geneId].annotations["genome_id"] = genomeId
-        all_ok = True
-        for feature_id in proteinSeqDict:
-            if "undefined" in feature_id:
-                problem_seq = proteinSeqDict[feature_id] # seqrecord with "undefined" in id
-                comment = "homology group {} has undefined identfier {}, skipping it\nrecord={}\n".format(homologId, feature_id, problem_seq)
-                LOG.write(comment)
-                #sys.stderr.write(comment)
-                all_ok = False
-        if not all_ok:
-            continue # skip this homology group
-        if args.debugMode:
-            LOG.write("protein set for %s has %d seqs\n"%(homologId, len(proteinSeqDict)))
-        if args.aligner == 'muscle':
-            proteinAlignment = phylocode.alignSeqRecordsMuscle(proteinSeqDict.values())
-        else:
-            proteinAlignment = phylocode.alignSeqRecordsMafft(proteinSeqDict.values())
-        if not proteinAlignment:
-            continue
-        proteinAlignment = phylocode.resolveDuplicatesPerPatricGenome(proteinAlignment)
+    for genomeId in homologMatrix[homologId]:
+        for geneId in homologMatrix[homologId][genomeId]:
+            if genomeId == genomeObject_genomeId:
+                proteinSeqDict[geneId] = genomeObjectProteins[geneId]
+            if geneId in proteinSeqDict:
+                proteinSeqDict[geneId].annotations["genome_id"] = genomeId
+    all_ok = True
+    for feature_id in proteinSeqDict:
+        if "undefined" in feature_id:
+            problem_seq = proteinSeqDict[feature_id] # seqrecord with "undefined" in id
+            comment = "homology group {} has undefined identfier {}, skipping it\nrecord={}\n".format(homologId, feature_id, problem_seq)
+            LOG.write(comment)
+            #sys.stderr.write(comment)
+            all_ok = False
+    if not all_ok:
+        continue # skip this homology group
+    if args.debugMode:
+        LOG.write("protein set for %s has %d seqs\n"%(homologId, len(proteinSeqDict)))
+    if args.aligner == 'muscle':
+        proteinAlignment = phylocode.alignSeqRecordsMuscle(proteinSeqDict.values())
+    else:
+        proteinAlignment = phylocode.alignSeqRecordsMafft(proteinSeqDict.values())
+    if not proteinAlignment:
+        continue
+    proteinAlignment = phylocode.resolveDuplicatesPerPatricGenome(proteinAlignment)
+    if proteinAlignment:
         proteinAlignment.sort()
         proteinAlignments[homologId] = proteinAlignment
         alignmentStats = phylocode.calcAlignmentStats(proteinAlignment)
@@ -353,10 +356,13 @@ for homologId in singleCopyHomologs:
             alignmentScore[homologId] = alignmentStats['sum_squared_freq'] / sqrt(alignmentStats['num_pos'])
         else:
             alignmentScore[homologId] = 0
-        for figId in alignmentStats['perseq_meanlogfreq']:
-            genomeId = genomeIdFromFigId(figId)
-            perGenomeLogFreq[genomeId] += alignmentStats['perseq_meanlogfreq'][figId]
-            genomeAlignmentCount[genomeId] += 1
+        if 'perseq_meanlogfreq' in alignmentStats:
+            for figId in alignmentStats['perseq_meanlogfreq']:
+                genomeId = genomeIdFromFigId(figId)
+                perGenomeLogFreq[genomeId] += alignmentStats['perseq_meanlogfreq'][figId]
+                genomeAlignmentCount[genomeId] += 1
+        else:
+            LOG.write(f"perseq_meanlogfreq missing for {genomeId}\n")
         proteinAlignmentStats[homologId] = alignmentStats
 
 protein_alignment_time = time() - protein_alignment_time
@@ -373,19 +379,20 @@ F.write("PGFam\tgenome\tfigtail\tgenome_mean\tgene_lf\tscore\n")
 for homologId in proteinAlignmentStats:
     alignmentStats = proteinAlignmentStats[homologId]
     worstScore = 0
-    for figId in alignmentStats['perseq_meanlogfreq']:
-        genomeId = genomeIdFromFigId(figId)
-        seqLogFreq =  alignmentStats['perseq_meanlogfreq'][figId]
-        badSeqScore = seqLogFreq / (perGenomeLogFreq[genomeId] - 1e-5)
-        if badSeqScore > worstScore:
-            worstScore = badSeqScore
-        F.write("{}\t{}\t{}\t{:.5f}\t{:.5f}\t{:.5f}\n".format(homologId, genomeId, figId[-7:], perGenomeLogFreq[genomeId], seqLogFreq, badSeqScore))
-        if badSeqScore >  8 : # scores are positive, positive excursion is bad
-            if 'bad_seqs' not in proteinAlignmentStats[homologId]:
-                alignmentStats['bad_seqs'] = {}
-            alignmentStats['bad_seqs'][genomeId] = badSeqScore
-            LOG.write("homolog {} has bad sequence {} scoring {} relative to mean {}\n".format(homologId, figId, badSeqScore, perGenomeLogFreq[genomeId]))
-    alignmentStats['worstSeqScore'] = worstScore
+    if 'perseq_meanlogfreq' in alignmentStats: # workaround for a problem here
+        for figId in alignmentStats['perseq_meanlogfreq']:
+            genomeId = genomeIdFromFigId(figId)
+            seqLogFreq =  alignmentStats['perseq_meanlogfreq'][figId]
+            badSeqScore = seqLogFreq / (perGenomeLogFreq[genomeId] - 1e-5)
+            if badSeqScore > worstScore:
+                worstScore = badSeqScore
+            F.write("{}\t{}\t{}\t{:.5f}\t{:.5f}\t{:.5f}\n".format(homologId, genomeId, figId[-7:], perGenomeLogFreq[genomeId], seqLogFreq, badSeqScore))
+            if badSeqScore >  8 : # scores are positive, positive excursion is bad
+                if 'bad_seqs' not in proteinAlignmentStats[homologId]:
+                    alignmentStats['bad_seqs'] = {}
+                alignmentStats['bad_seqs'][genomeId] = badSeqScore
+                LOG.write("homolog {} has bad sequence {} scoring {} relative to mean {}\n".format(homologId, figId, badSeqScore, perGenomeLogFreq[genomeId]))
+        alignmentStats['worstSeqScore'] = worstScore
 F.close()
 
 # select top alignments by score
@@ -487,18 +494,18 @@ if len(proteinAlignments):
                 for genome in homologMatrix[homologId]:
                     genesNotIncluded.update(set(homologMatrix[homologId][genome]))
                 genesIncluded = set()
-            F.write(homologId+"\tProteins\t")
-            for seqRecord in proteinAlignments[homologId]:
-                originalId = seqRecord.annotations['original_id']
-                F.write("\t"+originalId)
-                if originalId not in genesNotIncluded:
-                    LOG.write("Problem: originalId %s not in genesForHomologs for %s\n"%(originalId, homologId))
-                else:
-                    genesNotIncluded.remove(originalId)
-                genesIncluded.add(originalId)
-            if len(genesNotIncluded):
-                F.write("\tdeletedParalogs: \t"+"\t".join(genesNotIncluded))
-            F.write("\n")
+                F.write(homologId+"\tProteins\t")
+                for seqRecord in proteinAlignments[homologId]:
+                    originalId = seqRecord.annotations['original_id']
+                    F.write("\t"+originalId)
+                    if originalId not in genesNotIncluded:
+                        LOG.write("Problem: originalId %s not in genesForHomologs for %s\n"%(originalId, homologId))
+                    else:
+                        genesNotIncluded.remove(originalId)
+                    genesIncluded.add(originalId)
+                if len(genesNotIncluded):
+                    F.write("\tdeletedParalogs: \t"+"\t".join(genesNotIncluded))
+                F.write("\n")
             if homologId in codonAlignments:
                 F.write(homologId+"\tCodons\t")
                 codonPositions += codonAlignments[homologId].get_alignment_length()
@@ -507,10 +514,10 @@ if len(proteinAlignments):
                     F.write("\t"+originalId)
                     genesIncluded.remove(originalId)
                 if len(genesIncluded):
-                    F.write("\tlackingCodonAlignment: \t"+"\t".join(genesIncluded))
+                    F.write(f"\tlacking CodonAlignment for {homologId}: \t"+"\t".join(genesIncluded))
                 F.write("\n")
             else:
-                F.write(homologId+"\nNo codon alignment\n")
+                F.write(homologId+f"\nNo codon alignment {homologId}\n")
         F.write("\n")
     F.close()
 
@@ -527,7 +534,10 @@ if len(proteinAlignments):
             #    first = False
             F.write(homolog)
             for key in keystats:
-                F.write("\t{}".format(stats[key]))
+                val = 'na';
+                if key in stats:
+                    val = stats[key]
+                F.write("\t{}".format(val))
             F.write("\t"+str(homolog in singleCopyHomologs))
             F.write("\n")
             if 'bad_seqs' in stats:
