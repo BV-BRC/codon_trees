@@ -16,7 +16,8 @@ import subprocess
 Debug = False #shared across functions defined here
 LOG = sys.stderr
 #Base_url="https://www.patricbrc.org/api/"
-Base_url="https://p3.theseed.org/services/data_api/";
+#Base_url="https://p3.theseed.org/services/data_api/";
+Base_url="https://www.bv-brc.org/api-internal/";
 
 Session = requests.Session()
 Session.headers.update({ 'accept': "text/tsv" })

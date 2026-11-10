@@ -70,6 +70,15 @@
       "type": "int"
     },
     {
+      "id": "sequence_type",
+      "required": 0,
+      "default": "both",
+      "label": "Sequences to analyze",
+      "desc": "Build the tree from codon DNA, protein, or both (DNA alone is fastest)",
+      "type": "enum",
+      "enum": ["both", "dna", "protein"]
+    },
+    {
       "id": "max_genomes_missing",
       "required": 0,
       "default": "0",

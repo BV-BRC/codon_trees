@@ -100,6 +100,15 @@ sub run_codon_tree
         push @options, '--phyloxmlFields', join(',', @{$params->{genome_metadata_fields}});
     }
 
+    # sequence_type: 'both' (default) passes no flag, the builder then analyzes both
+    my $sequence_type = $params->{sequence_type} || 'both';
+    if ($sequence_type eq 'dna') {
+        push @options, '--analyzeCodons';
+    }
+    elsif ($sequence_type eq 'protein') {
+        push @options, '--analyzeProteins';
+    }
+
     if ($params->{debug}) {
         push(@options, '--debugMode');
     }

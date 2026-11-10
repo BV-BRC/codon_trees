@@ -21,6 +21,7 @@ It takes the following parameters:
 | genome_metadata_fields | Genome Metadata Fields | string  |  |  |
 | number_of_genes | Desired number of genes | int  |  | 20 |
 | bootstraps | Number of bootstrap replicates | int  |  | 100 |
+| sequence_type | Sequences to analyze (both, dna, protein) | enum  |  | both |
 | max_genomes_missing | Number of main genomes allowed missing from any PGFam | int  |  | 0 |
 | max_allowed_dups | Number of duplications allowed for main genomes in any PGFam | int  |  | 0 |
 
